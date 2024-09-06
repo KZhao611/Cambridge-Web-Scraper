@@ -138,10 +138,11 @@ def scrape(link, max_workers=5, output_file='output', csv=False, excel=True, cit
         df.to_csv(f'{output_file}.csv', index=False)
 
 
+# REPLACE LINK WITH THE LINK
+# LOOK AT THE ORANGE TEXT TO SEE THE PARAMETERS, AND ADD THEM INTO THE scrape(link, csv = True) TO CHANGE OPTIONS
 def main():
     link = "https://www.cambridge.org/core/journals/american-political-science-review/issue/C8F012F00B0AC2E021E2BC2142FA6AF5?sort=canonical.position%3Aasc&pageNum=1&searchWithinIds=C8F012F00B0AC2E021E2BC2142FA6AF5&productType=JOURNAL_ARTICLE&template=cambridge-core%2Fjournal%2Farticle-listings%2Flistings-wrapper&hideArticleJournalMetaData=true&displayNasaAds=false"
-    scrape(link, csv=True)
-
+    scrape(link)
 
 if __name__ == "__main__":
     main()
