@@ -8,11 +8,23 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import StaleElementReferenceException
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from enum import Enum
 import requests
 import time
 import pandas as pd
 
-# grab abstract, citation in chicago, unis of authors
+
+
+class CitationStyle(Enum):
+    AMA = "american-medical-association"
+    APSA = "american-political-science-association"
+    APA = "apa"
+    CHICAGO = "chicagob"
+    HARVARD = "harvard"
+    IEEE = "ieee"
+    MHRA = "modern-humanities-research-association"
+    MLA = "mla7"
+    VANCOUVER = "vancouver"
 
 #To click the cite button, idk but it only works when i use this
 def click_element(driver, by, value):
@@ -31,7 +43,7 @@ def click_element(driver, by, value):
             pass
 
 #Get Abstract and Chicago Citation from link
-def get_info(link):
+def get_info(link, citation_style):
     chrome_options = Options()
     chrome_options.add_argument("--headless")  # Enable headless mode
     chrome_options.add_argument("--no-sandbox")  # For environments where sandboxing is not available
@@ -56,7 +68,7 @@ def get_info(link):
     initial_text = citation.text
 
     select = Select(select_element)
-    select.select_by_value("chicagob")
+    select.select_by_value(citation_style.value)
 
     WebDriverWait(driver, 5).until(
         lambda d: citation.text != initial_text
@@ -89,16 +101,16 @@ def get_links(url):
 
     return links
 
-def parallel_get_info(link):
+def parallel_get_info(link, citation_style):
     try:
-        abstract, citation, authors = get_info(link)
+        abstract, citation, authors = get_info(link, citation_style)
         # Create a dictionary with 'Authors' as a list of authors
         return {'Chicago Citation': citation, 'Abstract': abstract,  'First Author Institution': authors[0], 'Other Author Institutions': ' / '.join(authors[1:])}
     except Exception as e:
         print(f"Error with {link}: {e}")
         return None
 
-def scrape(link, max_workers=5, output_file='output', csv=False, excel=True):
+def scrape(link, max_workers=5, output_file='output', csv=False, excel=True, citation_style=CitationStyle.CHICAGO):
     """
     Input: link (str), max_workers (int), output_filename (str), csv (bool), excel (bool)
     Output:
@@ -111,7 +123,7 @@ def scrape(link, max_workers=5, output_file='output', csv=False, excel=True):
     # Set up a ThreadPoolExecutor for parallel execution
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit tasks to the executor for each link
-        future_to_link = {executor.submit(parallel_get_info, link): link for link in links}
+        future_to_link = {executor.submit(parallel_get_info, link, citation_style): link for link in links}
         
         # As each task completes, append the result to the DataFrame
         for future in as_completed(future_to_link):
@@ -125,5 +137,11 @@ def scrape(link, max_workers=5, output_file='output', csv=False, excel=True):
     if(csv):
         df.to_csv(f'{output_file}.csv', index=False)
 
-link = "https://www.cambridge.org/core/journals/american-political-science-review/issue/C8F012F00B0AC2E021E2BC2142FA6AF5?sort=canonical.position%3Aasc&pageNum=1&searchWithinIds=C8F012F00B0AC2E021E2BC2142FA6AF5&productType=JOURNAL_ARTICLE&template=cambridge-core%2Fjournal%2Farticle-listings%2Flistings-wrapper&hideArticleJournalMetaData=true&displayNasaAds=false"
-scrape(link, csv=True)
+
+def main():
+    link = "https://www.cambridge.org/core/journals/american-political-science-review/issue/C8F012F00B0AC2E021E2BC2142FA6AF5?sort=canonical.position%3Aasc&pageNum=1&searchWithinIds=C8F012F00B0AC2E021E2BC2142FA6AF5&productType=JOURNAL_ARTICLE&template=cambridge-core%2Fjournal%2Farticle-listings%2Flistings-wrapper&hideArticleJournalMetaData=true&displayNasaAds=false"
+    scrape(link, csv=True)
+
+
+if __name__ == "__main__":
+    main()
