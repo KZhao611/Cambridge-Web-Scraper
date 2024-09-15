@@ -10,6 +10,7 @@ from enum import Enum
 import requests
 import time
 import pandas as pd
+import re
 
 class CitationStyle(Enum):
     AMA = "american-medical-association"
@@ -53,20 +54,42 @@ def get_info(link, citation_style):
         s = soup.find('div', class_='abstract')
         abstract = s.text
     except Exception as e:
-        print("error at abstract")
-        raise e
+        type = soup.find('dt', string=re.compile(r'\s+Type\s+'))
+        type = type.findNextSibling().text
+        # print(type)
+        if(type == "Research Article"):
+            print("error at abstract")
+            raise e
+        else:
+            abstract = ""
 
     # print(button)
-    click_element(driver, By.LINK_TEXT, "Show author details")
-    s = soup.find_all('div', class_='row author')
-    authors = []
-
     try:
-        for row in s:
-            authors.append(row.text.strip().split(' Affiliation: ')[1])
-    except Exception as e:
-        print("error at authors")
-        raise e
+        type
+        if type != "Correction":
+            click_element(driver, By.LINK_TEXT, "Show author details")
+            s = soup.find_all('div', class_='row author')
+            authors = []
+
+            try:
+                for row in s:
+                    authors.append(row.text.strip().split(' Affiliation: ')[1])
+            except Exception as e:
+                print("error at authors")
+                raise e
+        else:
+            authors = []
+    except NameError:
+        click_element(driver, By.LINK_TEXT, "Show author details")
+        s = soup.find_all('div', class_='row author')
+        authors = []
+        try:
+            for row in s:
+                authors.append(row.text.strip().split(' Affiliation: ')[1])
+        except Exception as e:
+            print("error at authors")
+            raise e
+        
 
 
     click_element(driver, By.CLASS_NAME, "export-citation-product")
@@ -98,19 +121,25 @@ def get_links(url):
     domain = "https://www.cambridge.org"
     r = requests.get(url)
     soup = BeautifulSoup(r.content, "html.parser")
-
+    
     s = soup.find('h4', class_="journal-article-listing-type")
-    siblings = s.findNextSiblings()
-
+    siblings = [s] + s.findNextSiblings()
     result = []
+    inReviews = False
     for sibling in siblings:
         if sibling.name == "h4":
-            break
+            if sibling.text == "Book Reviews":
+                inReviews = True
+            else:
+                inReviews = False
+            continue
+        # Don't know what h3 are supposed to represent (its like a name of something), skip book reviews and anything that contains front/back matter
+        if inReviews or sibling.name == "h3" or sibling.text.lower().__contains__("front matter") or sibling.text.lower().__contains__("back matter") or sibling.text.lower().__contains__("book review"):
+            continue
         result.append(sibling)
-
+        # print(sibling.find('a').text)
     siblings = result
     links = list(map(lambda x: domain + x.find('a').get('href'), siblings))
-    print("Expected number of rows (accounting for column names): ", len(links) + 1)
     return links
 
 def parallel_get_info(link, citation_style):
@@ -118,24 +147,55 @@ def parallel_get_info(link, citation_style):
         try:
             abstract, citation, authors = get_info(link, citation_style)
             # Create a dictionary with 'Authors' as a list of authors
+            if len(authors) == 0:
+                return {'Chicago Citation': citation, 'Abstract': abstract,  'First Author Institution': '', 'Other Author Institutions': ''}
             return {'Chicago Citation': citation, 'Abstract': abstract,  'First Author Institution': authors[0], 'Other Author Institutions': ' / '.join(authors[1:])}
         except Exception as e:
+            print(link)
+            print(e)
             print(f"Error occured, retrying")
+
+def get_pages(url):
+    r = requests.get(url)
+    soup = BeautifulSoup(r.content, "html.parser")
+
+    pages = soup.find('div', class_="pagination-centered")
+    pages = pages.find('p').text
+    pages = int(pages[-1])
+
+    links = [url]
+    for i in range(1, pages+1):
+        links.append(url.replace("pageNum=1", "pageNum=" + str(i)))
+    
+    return links
+    
 
 def scrape(link, max_workers=10, output_file='output', csv=False, excel=True, citation_style=CitationStyle.CHICAGO):
     """
     Input: link (str), max_workers (int), output_filename (str), csv (bool), excel (bool)
     Output:
     """
-    links = get_links(link)
+    links = get_pages(link)
+    all_links = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit tasks to the executor for each link
+            future_to_link = {executor.submit(get_links, link): link for link in links}
+            
+            # As each task completes, append the result to the DataFrame
+            for future in as_completed(future_to_link):
+                result = future.result()
+                if result != []:  # If result is not None
+                    all_links.extend(result)
 
+    all_links = list(set(all_links))
+    print(f"Expected rows including header: {len(all_links)+1}")
     # Initialize an empty DataFrame to store results
     df = pd.DataFrame()
 
     # Set up a ThreadPoolExecutor for parallel execution
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         # Submit tasks to the executor for each link
-        future_to_link = {executor.submit(parallel_get_info, link, citation_style): link for link in links}
+        future_to_link = {executor.submit(parallel_get_info, link, citation_style): link for link in all_links}
         
         # As each task completes, append the result to the DataFrame
         for future in as_completed(future_to_link):
@@ -156,7 +216,7 @@ def main():
     # link = "https://www.cambridge.org/core/journals/american-political-science-review/issue/C8F012F00B0AC2E021E2BC2142FA6AF5?sort=canonical.position%3Aasc&pageNum=1&searchWithinIds=C8F012F00B0AC2E021E2BC2142FA6AF5&productType=JOURNAL_ARTICLE&template=cambridge-core%2Fjournal%2Farticle-listings%2Flistings-wrapper&hideArticleJournalMetaData=true&displayNasaAds=false"
     link = input("Enter link: ")
     scrape(link)
-    print("Done")
+    print("Done!")
 
 if __name__ == "__main__":
     main()
